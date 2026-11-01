@@ -1,30 +1,10 @@
+use crate::exclusions::{should_skip_dir, should_skip_file};
 use sha2::{Digest, Sha256};
 use std::{
-    fs::{self,File},
-    io::{self,Read,Write},
+    fs::{self, File},
+    io::{self, Read, Write},
     path::Path,
 };
-
-const MAGIC_SIGNATURES: &[(&str,&[u8])] = &[
-        ("ELF", b"\x7FELF"),
-    ("PE", b"MZ"),
-    ("Script", b"#!"),
-    ("ZIP", b"PK\x03\x04"),
-
-    //32-bit
-    ("Mach-O", &[0xFE, 0xED, 0xFA, 0xCE]),
-    ("Mach-O", &[0xCE, 0xFA, 0xED, 0xFE]),
-    //64 bit
-    ("Mach-O", &[0xFE, 0xED, 0xFA, 0xCF]),
-    ("Mach-O", &[0xCF, 0xFA, 0xED, 0xFE]),
-
-    ("Java Class", &[0xCA, 0xFE, 0xBA, 0xBE]),
-
-    ("RAR", b"Rar!\x1A\x07"),
-
-    ("7z", &[0x37, 0x7A, 0xBC, 0xAF, 0x27, 0x1C]),
-];
-
 
 fn compute_sha256(file_path: &Path) -> io::Result<String> {
     let file = File::open(file_path)?;
@@ -42,44 +22,90 @@ fn compute_sha256(file_path: &Path) -> io::Result<String> {
     Ok(format!("{:x}", result))
 }
 
-
-
-
-
-pub fn should_scan_file(file_path : &Path) -> Result<bool,std::io::Error>{
-
-    let mut file = File::open(file_path)?;
-    let mut buffer = [0u8; 16];
-    let bytes_read = file.read(&mut buffer)?;
-    let data = &buffer[..bytes_read];
-
-    for (file_type,signature) in MAGIC_SIGNATURES {
-        if data.starts_with(signature){
-           println!(":::     {file_type}    :::  True  ");
-            io::stdout().flush()?;
-            return Ok(true);
+pub fn scan_directory(dir: &Path, log: &mut std::fs::File) -> io::Result<()> {
+    let entries = match fs::read_dir(dir) {
+        Ok(entries) => entries,
+        Err(e) => {
+            writeln!(log, "Cannot access directory {}: {}", dir.display(), e)?;
+            return Ok(());
         }
-    }
+    };
 
-    Ok(false)
-}
-pub fn scan_directory(dir: &Path) -> io::Result<()> {
-    for entry in fs::read_dir(dir)? {
-        let entry = entry?;
+    for entry in entries {
+        let entry = match entry {
+            Ok(entry) => entry,
+            Err(e) => {
+                writeln!(log, "Cannot read directory entry: {}", e)?;
+                continue;
+            }
+        };
+
         let path = entry.path();
-        if path.is_dir() {
-            println!("{}", path.display());
-            scan_directory(&path)?;
+
+        // Get metadata without following symlinks
+        let metadata = match fs::symlink_metadata(&path) {
+            Ok(metadata) => metadata,
+            Err(e) => {
+                writeln!(
+                    log,
+                    "Cannot read metadata {}: {}",
+                    path.display(),
+                    e
+                )?;
+                continue;
+            }
+        };
+
+        // Do not follow symlinks
+        if metadata.file_type().is_symlink() {
+            writeln!(log, "Skipping symlink: {}", path.display())?;
+            continue;
+        }
+
+        if metadata.is_dir() {
+            if should_skip_dir(&path) {
+                continue;
+            }
+
+            writeln!(log, "{}", path.display())?;
+
+            scan_directory(&path, log)?;
         } else {
-            if should_scan_file(&path)? {
+            let should_skip = match should_skip_file(&path, log) {
+                Ok(value) => value,
+                Err(e) => {
+                    writeln!(
+                        log,
+                        "Cannot inspect file {}: {}",
+                        path.display(),
+                        e
+                    )?;
+                    continue;
+                }
+            };
+
+            if !should_skip {
                 match compute_sha256(&path) {
-                Ok(hash) => println!("File: {} | SHA-256: {}", path.display(), hash),
-                Err(e) => eprintln!("Could not hash file {}: {}", path.display(), e),
+                    Ok(hash) => {
+                        writeln!(
+                            log,
+                            "File: {} | SHA-256: {}",
+                            path.display(),
+                            hash
+                        )?;
+                    }
+
+                    Err(e) => {
+                        writeln!(
+                            log,
+                            "Could not hash file {}: {}",
+                            path.display(),
+                            e
+                        )?;
+                    }
+                }
             }
         }
-       
-        }
-        
     }
 
     Ok(())
