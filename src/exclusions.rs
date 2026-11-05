@@ -45,6 +45,13 @@ const SYSTEM_SKIP_PATHS: &[&str] = &["/dev", "/private/var/run"];
 #[cfg(target_os = "windows")]
 const SYSTEM_SKIP_PATHS: &[&str] = &[];
 
+/// Checks if a directory is excluded by scanner rules
+/// 
+/// It returns `true` if the directory can be skipped, `false` otherwise
+/// 
+/// # Arguments 
+/// * `dir_path` - path of a directory 
+/// 
 pub fn should_skip_dir(dir_path: &Path) -> bool {
     if let Some(name) = dir_path.file_name().and_then(|n| n.to_str())
         && COMMON_SKIP_DIRS.contains(&name)
@@ -60,6 +67,20 @@ pub fn should_skip_dir(dir_path: &Path) -> bool {
     false
 }
 
+/// Checks if a file could be skip 
+/// Reads the file header and compares it against known file signatures
+/// 
+/// It returns `true` if the file can be skipped, `false` otherwise
+/// 
+/// # Arguments 
+/// * `file_path` - path of a file
+/// * `log` - mutable reference to the file used for logs
+/// 
+/// # Errors
+/// * "io::Error" if writing to log file fails
+/// * The requested file cannot be oppened
+/// * an I/O error occurs while reading from the file
+/// 
 pub fn should_skip_file(file_path: &Path, log : &mut std::fs::File) -> Result<bool, std::io::Error> {
     let mut file = File::open(file_path)?;
     let mut buffer = [0u8; 16];

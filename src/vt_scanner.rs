@@ -30,6 +30,25 @@ pub fn config() -> Result<String, Box<dyn std::error::Error>> {
 
 const BASE_URL: &str = "https://virustotal.com/api/v3";
 
+/// Checks a file has on VirusTotal API
+/// 
+/// The functions sends the provided hash to VT and parses the analysis stats returned by the API
+/// 
+/// It returnes a formated String containing the number of engines that classified the file as malicious, suspicious, harmless, or undetected
+/// 
+/// # Arguments 
+/// * `api_key` - VirusTOtal API key used for autentification
+/// * `hash` - Hash of a file
+/// 
+/// # Errors
+/// 
+/// Returns an error if:
+///    * The api key couldn't be transformed into a valid http header
+///    * The http request to VT could not be sent
+///    * VT returns a non-succesfull HTTP status
+///    * The response from VT cannot bet parsed into expected response structure
+/// 
+/// 
 pub async fn check_hash_vt(
     api_key: &str,
     hash: &str,
@@ -39,17 +58,18 @@ pub async fn check_hash_vt(
     url.push_str("/files/");
     url.push_str(hash);
     let mut header = HeaderMap::new();
-    header.insert("x-apikey", HeaderValue::from_str(api_key)?);
+    let api_header = HeaderValue::from_str(api_key).map_err(|e| format!("Invalid VT api key header: {}",e))?;
+    header.insert("x-apikey", api_header);
 
-    let response = client.get(&url).headers(header).send().await?;
+    let response = client.get(&url).headers(header).send().await.map_err(|e| format!("Could not sent request to VT {e}"))?;
 
     if !response.status().is_success() {
         let status = response.status();
-        let body = response.text().await?;
+        let body = response.text().await.unwrap_or_else(|_| "Could not read response body".to_string());
         return Err(format!("VirusTotal Error {} : {}", status, body).into());
     }
 
-    let vt_response: VTResponse = response.json().await?;
+    let vt_response: VTResponse = response.json().await.map_err(|e| format!("Failed to parse VT response : {e}"))?;
 
     match vt_response.data {
         Some(data) => {

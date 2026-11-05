@@ -4,6 +4,8 @@ use std::{
     path,
 };
 
+use crate::vt_scanner::check_hash_vt;
+
 mod exclusions;
 mod scanner;
 mod vt_scanner;
@@ -16,19 +18,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .open("scan.log")?;
     let mut dir = String::new();
     print!("Enter directory: ");
-    io::stdout().flush()?; // prints immediately
+    io::stdout().flush()?; 
     io::stdin().read_line(&mut dir)?;
     let dir_path = path::Path::new(dir.trim());
     scanner::scan_directory(dir_path, &mut log)?;
-
-    // let mut input = String::new();
-
-    // print!("Enter hash: ");
-    // io::stdout().flush().unwrap();
-
-    // io::stdin()
-    //     .read_line(&mut input)
-    //     .expect("Failed to read input");
 
     Ok(())
 }
